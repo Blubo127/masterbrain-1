@@ -1,5 +1,7 @@
 # Airalogy Masterbrain
 
+简体中文：[README.zh-CN.md](README.zh-CN.md)
+
 [Setup](#-setup) • [Features](#-features) • [API Documentation](#-api-documentation)
 
 ## 🚀 Setup
@@ -122,7 +124,7 @@ When you open the API documentation page, you'll see the following interface:
 
 ## Citation
 
-When using the Airalogy Masterbrain API, please cite the following paper:
+If you use Airalogy Masterbrain in your research or project, or if this project has been helpful to your work, please cite the following paper:
 
 ```bibtex
 @misc{yang2025airalogyaiempowereduniversaldata,
