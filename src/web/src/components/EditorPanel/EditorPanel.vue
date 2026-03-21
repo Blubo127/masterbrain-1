@@ -1,9 +1,14 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
-import type { FileEntry, PreviewState, ModelConfig, ProtocolDebugResponse } from '../../types/index.ts';
+import type {
+  EditorSelection,
+  FileEntry,
+  PreviewState,
+  ModelConfig,
+  ProtocolDebugResponse,
+} from '../../types/index.ts';
 import { debugProtocol } from '../../utils/apiClient.ts';
 import CodeEditor from './CodeEditor.vue';
-import type { EditorSelection } from './CodeEditor.vue';
 import AimdPreview from './AimdPreview.vue';
 
 const props = defineProps<{
@@ -11,12 +16,14 @@ const props = defineProps<{
   previewState: PreviewState | null;
   isDark: boolean;
   model: ModelConfig;
+  hasWorkspace: boolean;
 }>();
 
 const emit = defineEmits<{
   change: [content: string];
   keepPreview: [];
   discardPreview: [];
+  selectionChange: [selection: EditorSelection | null];
 }>();
 
 interface DebugState {
@@ -35,13 +42,14 @@ const viewMode = ref<'split' | 'editor' | 'preview'>('split');
 
 function handleSelectionChange(sel: EditorSelection | null) {
   selection.value = sel;
+  emit('selectionChange', sel);
 }
 
 const displayFile = computed<FileEntry | null>(() => {
   if (props.previewState) {
     return {
-      name: props.previewState.type === 'aimd' ? 'preview.aimd' : 'preview.py',
-      path: '__preview__',
+      name: props.previewState.name,
+      path: props.previewState.path ?? '__preview__',
       content: props.previewState.content,
       type: props.previewState.type,
     };
@@ -52,6 +60,13 @@ const displayFile = computed<FileEntry | null>(() => {
 const lineCount = computed(() => {
   if (!displayFile.value) return 0;
   return displayFile.value.content.split('\n').length;
+});
+
+const typeLabel = computed(() => {
+  if (!displayFile.value) return 'FILE';
+  if (displayFile.value.type === 'aimd') return 'AIMD';
+  if (displayFile.value.type === 'py') return 'PY';
+  return 'TXT';
 });
 
 async function handleDebug() {
@@ -89,15 +104,19 @@ function handleDiscardDebug() {
   <div v-if="!displayFile" class="editor-empty">
     <div class="editor-empty__icon">⌘</div>
     <div class="editor-empty__content">
-      <h2 class="editor-empty__title">Workspace is ready</h2>
-      <p class="editor-empty__text">Select a file from the left panel or upload a ZIP archive to start editing and previewing protocol content.</p>
+      <h2 class="editor-empty__title">{{ props.hasWorkspace ? 'Workspace is ready' : 'Choose a workspace folder' }}</h2>
+      <p class="editor-empty__text">
+        {{ props.hasWorkspace
+          ? 'Select a file from the left panel, create a new file, or import a ZIP archive to start editing and previewing protocol content.'
+          : 'Pick a local workspace folder from the left panel. Masterbrain will work directly against that directory on disk.' }}
+      </p>
     </div>
   </div>
 
   <div v-else class="editor-shell">
     <div class="editor-shell__header">
       <div class="editor-shell__file">
-        <span class="editor-shell__file-icon">{{ displayFile.type === 'aimd' ? 'AIMD' : 'PY' }}</span>
+        <span class="editor-shell__file-icon">{{ typeLabel }}</span>
         <div>
           <p class="editor-shell__eyebrow">{{ props.previewState ? 'Preview session' : 'Editor workspace' }}</p>
           <h2 class="editor-shell__title">{{ displayFile.name }}</h2>
@@ -127,7 +146,7 @@ function handleDiscardDebug() {
     </div>
 
     <div class="editor-shell__statusbar">
-      <span>{{ displayFile.type.toUpperCase() }}</span>
+      <span>{{ typeLabel }}</span>
       <span>{{ lineCount }} lines</span>
       <span>{{ props.isDark ? 'Dark theme' : 'Light theme' }}</span>
       <span v-if="selection">Selection ready</span>
@@ -136,7 +155,7 @@ function handleDiscardDebug() {
     <div v-if="props.previewState" class="editor-shell__notice">
       <div>
         <p class="editor-shell__notice-title">Preview mode</p>
-        <p class="editor-shell__notice-text">AI-generated {{ props.previewState.type.toUpperCase() }} content is loaded into the editor in read-only mode.</p>
+        <p class="editor-shell__notice-text">AI-generated {{ typeLabel }} content is loaded into the editor in read-only mode.</p>
       </div>
       <div class="editor-shell__notice-actions">
         <button

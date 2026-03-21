@@ -1,35 +1,114 @@
-import type { ChatApiRequest, ProtocolGenRequest, ModelConfig, ProtocolDebugRequest, ProtocolDebugResponse } from '../types';
+import type {
+  ChatApiRequest,
+  CodeEditRequest,
+  CodeEditResponse,
+  ProtocolGenRequest,
+  ModelConfig,
+  ProtocolDebugRequest,
+  ProtocolDebugResponse,
+} from '../types';
 
-export async function* streamChatLanguage(req: ChatApiRequest): AsyncGenerator<string> {
-  const res = await fetch('/api/endpoints/chat/qa/language', {
+async function readApiError(res: Response): Promise<string> {
+  const fallback = `API error ${res.status}`;
+  const contentType = res.headers.get('content-type') ?? '';
+
+  try {
+    if (contentType.includes('application/json')) {
+      const payload = await res.json();
+      const detail = extractErrorDetail(payload);
+      return detail ? `API error ${res.status}: ${detail}` : fallback;
+    }
+
+    const text = (await res.text()).trim();
+    if (!text) return fallback;
+
+    try {
+      const parsed = JSON.parse(text);
+      const detail = extractErrorDetail(parsed);
+      return detail ? `API error ${res.status}: ${detail}` : `API error ${res.status}: ${text}`;
+    } catch {
+      return `API error ${res.status}: ${text}`;
+    }
+  } catch {
+    return fallback;
+  }
+}
+
+function extractErrorDetail(payload: unknown): string | null {
+  if (typeof payload === 'string') return payload;
+  if (!payload || typeof payload !== 'object') return null;
+
+  const record = payload as Record<string, unknown>;
+  const detail = record.detail;
+  if (typeof detail === 'string') return detail;
+  if (detail && typeof detail === 'object') {
+    const nestedDetail = extractErrorDetail(detail);
+    if (nestedDetail) return nestedDetail;
+  }
+
+  const error = record.error;
+  if (typeof error === 'string') return error;
+  if (error && typeof error === 'object') {
+    const errorRecord = error as Record<string, unknown>;
+    if (typeof errorRecord.message === 'string') return errorRecord.message;
+  }
+
+  const message = record.message;
+  if (typeof message === 'string') return message;
+
+  return null;
+}
+
+async function requestTextStream(url: string, body: unknown): Promise<ReadableStream<Uint8Array>> {
+  const res = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(req),
+    body: JSON.stringify(body),
   });
-  if (!res.ok || !res.body) throw new Error(`API error: ${res.status}`);
-  yield* readStream(res.body);
+
+  if (!res.ok) {
+    throw new Error(await readApiError(res));
+  }
+  if (!res.body) {
+    throw new Error('API returned an empty response body.');
+  }
+
+  return res.body;
+}
+
+async function requestJson<T>(url: string, body: unknown): Promise<T> {
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+
+  if (!res.ok) {
+    throw new Error(await readApiError(res));
+  }
+
+  return res.json() as Promise<T>;
+}
+
+export async function* streamChatLanguage(req: ChatApiRequest): AsyncGenerator<string> {
+  const body = await requestTextStream('/api/endpoints/chat/qa/language', req);
+  yield* readStream(body);
+}
+
+export async function runCodeEdit(req: CodeEditRequest): Promise<CodeEditResponse> {
+  return requestJson<CodeEditResponse>('/api/endpoints/code_edit', req);
 }
 
 /** Protocol generation v3 - single unified .aimd file */
 export async function* streamProtocolGenV3(req: ProtocolGenRequest): AsyncGenerator<string> {
-  const res = await fetch('/api/endpoints/single_protocol_file_generation', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(req),
-  });
-  if (!res.ok || !res.body) throw new Error(`API error: ${res.status}`);
-  yield* readStream(res.body);
+  const body = await requestTextStream('/api/endpoints/single_protocol_file_generation', req);
+  yield* readStream(body);
 }
 
 /** Protocol generation v1 - step 1: generate protocol.aimd */
 export async function* streamProtocolGenAimd(req: ProtocolGenRequest): AsyncGenerator<string> {
-  const res = await fetch('/api/endpoints/protocol_generation/aimd', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(req),
-  });
-  if (!res.ok || !res.body) throw new Error(`API error: ${res.status}`);
-  yield* readStream(res.body);
+  const body = await requestTextStream('/api/endpoints/protocol_generation/aimd', req);
+  yield* readStream(body);
 }
 
 /** Protocol generation v1 - step 2: generate model.py */
@@ -37,13 +116,8 @@ export async function* streamProtocolGenModel(req: {
   use_model: ModelConfig;
   protocol_aimd?: string;
 }): AsyncGenerator<string> {
-  const res = await fetch('/api/endpoints/protocol_generation/model', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(req),
-  });
-  if (!res.ok || !res.body) throw new Error(`API error: ${res.status}`);
-  yield* readStream(res.body);
+  const body = await requestTextStream('/api/endpoints/protocol_generation/model', req);
+  yield* readStream(body);
 }
 
 /** Protocol generation v1 - step 3: generate assigner.py */
@@ -52,27 +126,13 @@ export async function* streamProtocolGenAssigner(req: {
   protocol_aimd?: string;
   protocol_model?: string;
 }): AsyncGenerator<string> {
-  const res = await fetch('/api/endpoints/protocol_generation/assigner', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(req),
-  });
-  if (!res.ok || !res.body) throw new Error(`API error: ${res.status}`);
-  yield* readStream(res.body);
+  const body = await requestTextStream('/api/endpoints/protocol_generation/assigner', req);
+  yield* readStream(body);
 }
 
 /** Protocol debug - syntax check and fix */
 export async function debugProtocol(req: ProtocolDebugRequest): Promise<ProtocolDebugResponse> {
-  const res = await fetch('/api/endpoints/protocol_debug', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(req),
-  });
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`API error ${res.status}: ${text}`);
-  }
-  return res.json();
+  return requestJson<ProtocolDebugResponse>('/api/endpoints/protocol_debug', req);
 }
 
 async function* readStream(body: ReadableStream<Uint8Array>): AsyncGenerator<string> {
@@ -87,17 +147,6 @@ async function* readStream(body: ReadableStream<Uint8Array>): AsyncGenerator<str
   } finally {
     reader.releaseLock();
   }
-}
-
-/** Detect user intent from message text */
-export function detectIntent(text: string): 'generate' | 'chat' {
-  const lower = text.toLowerCase();
-  const generatePatterns = [
-    '生成', '创建', '新建', '制作', '写一个协议', '写个协议', '帮我写',
-    'generate protocol', 'create protocol', 'new protocol', 'write a protocol', 'build protocol',
-  ];
-  if (generatePatterns.some(p => lower.includes(p))) return 'generate';
-  return 'chat';
 }
 
 /** Extract all ```aimd ... ``` code blocks */

@@ -18,8 +18,12 @@ dependencies = [
     "dashscope>=1.25.2",
     "tavily>=1.1.0",
     "httpx>=0.27.0",
+    "socksio>=1.0.0,<2",
     "langchain-core>=0.2.0,<1",
 ]
+
+[project.scripts]
+masterbrain-desktop = "masterbrain.desktop:main"
 
 
 [build-system]
@@ -33,3 +37,4 @@ default = true
 
 [dependency-groups]
 dev = ["pytest>=8.4.1", "pytest-asyncio>=1.1.0"]
+packaging = ["pyinstaller>=6.11.0,<7"]

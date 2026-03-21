@@ -1,13 +1,7 @@
 <script setup lang="ts">
 import { ref, watch, onMounted, onBeforeUnmount, shallowRef } from 'vue';
 import * as monaco from 'monaco-editor';
-import type { FileEntry } from '../../types/index.ts';
-
-export interface EditorSelection {
-  text: string;
-  startOffset: number;
-  endOffset: number;
-}
+import type { EditorSelection, FileEntry } from '../../types/index.ts';
 
 const props = defineProps<{
   file: FileEntry;
@@ -116,7 +110,9 @@ function registerAimd() {
 }
 
 function getLanguage() {
-  return props.file.type === 'aimd' ? 'aimd' : 'python';
+  if (props.file.type === 'aimd') return 'aimd';
+  if (props.file.type === 'py') return 'python';
+  return 'plaintext';
 }
 
 function getTheme() {

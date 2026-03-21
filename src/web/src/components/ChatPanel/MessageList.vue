@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, watch, nextTick } from 'vue';
 import MarkdownIt from 'markdown-it';
-import type { ChatMessage } from '../../types/index.ts';
+import type { ChatMessage, CodeChange } from '../../types/index.ts';
 import AiAvatar from './AiAvatar.vue';
 
 const COLLAPSE_LINES = 18;
@@ -13,6 +13,7 @@ const EXAMPLE_PROMPTS = [
 
 const props = defineProps<{
   messages: ChatMessage[];
+  hasWorkspace: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -20,6 +21,10 @@ const emit = defineEmits<{
   applyBlock: [block: string, msgId: string];
   dismissBlock: [msgId: string];
   previewBlock: [block: string, msgId: string];
+  previewChangedFile: [change: CodeChange, msgId: string];
+  applyChangedFile: [change: CodeChange, msgId: string];
+  applyAllChangedFiles: [changes: CodeChange[], msgId: string];
+  dismissChangedFiles: [msgId: string];
   confirmStep: [];
   regenerateStep: [];
 }>();
@@ -66,7 +71,11 @@ watch(() => props.messages, () => {
       <AiAvatar size="lg" />
       <div>
         <h3 class="chat-empty__title">Hi, I'm Aira</h3>
-        <p class="chat-empty__subtitle">Ask about protocol design, debugging, or workspace edits. The editor context is carried into the conversation automatically.</p>
+        <p class="chat-empty__subtitle">
+          {{ props.hasWorkspace
+            ? 'Choose Chat for discussion, Edit for workspace changes, or Generate for protocol creation. The active editor context is included automatically when relevant.'
+            : 'Choose a workspace folder first, then use Chat for discussion, Edit for workspace changes, or Generate for protocol creation.' }}
+        </p>
       </div>
     </div>
     <div class="chat-empty__examples">
@@ -146,6 +155,51 @@ watch(() => props.messages, () => {
               @click="emit('dismissBlock', msg.id)"
             >Dismiss</button>
           </div>
+        </div>
+
+        <div v-if="msg.role === 'assistant' && !msg.streaming && msg.changedFiles && msg.changedFiles.length > 0" class="chat-action-card">
+          <p class="chat-action-card__text">OpenCode prepared workspace edits. Review them file by file or apply everything at once.</p>
+          <div class="chat-action-card__actions chat-action-card__actions--wrap">
+            <span v-for="change in msg.changedFiles" :key="change.path" class="chat-action-card__inline-actions">
+              <span class="chat-action-card__file-label">{{ change.name }} · {{ change.status }}</span>
+              <button
+                v-if="change.status !== 'deleted'"
+                class="chat-action-card__button chat-action-card__button--preview"
+                @click="emit('previewChangedFile', change, msg.id)"
+              >Preview</button>
+              <button
+                class="chat-action-card__button chat-action-card__button--primary"
+                @click="emit('applyChangedFile', change, msg.id)"
+              >{{ change.status === 'deleted' ? 'Delete' : 'Apply' }}</button>
+            </span>
+            <button
+              class="chat-action-card__button chat-action-card__button--primary"
+              @click="emit('applyAllChangedFiles', msg.changedFiles, msg.id)"
+            >Apply all</button>
+            <button
+              class="chat-action-card__button chat-action-card__button--ghost"
+              @click="emit('dismissChangedFiles', msg.id)"
+            >Dismiss</button>
+          </div>
+          <details v-if="msg.executionLog && msg.executionLog.length > 0" class="chat-action-card__details">
+            <summary>Execution details</summary>
+            <ul class="chat-action-card__log">
+              <li v-for="(line, index) in msg.executionLog" :key="`${msg.id}-change-log-${index}`">{{ line }}</li>
+            </ul>
+          </details>
+        </div>
+
+        <div
+          v-if="msg.role === 'assistant' && !msg.streaming && msg.editStatus === 'no_changes'"
+          class="chat-action-card"
+        >
+          <p class="chat-action-card__text">OpenCode completed, but it did not modify any supported workspace files this time.</p>
+          <details v-if="msg.executionLog && msg.executionLog.length > 0" class="chat-action-card__details" open>
+            <summary>Execution details</summary>
+            <ul class="chat-action-card__log">
+              <li v-for="(line, index) in msg.executionLog" :key="`${msg.id}-noop-log-${index}`">{{ line }}</li>
+            </ul>
+          </details>
         </div>
       </div>
     </div>
@@ -336,10 +390,38 @@ watch(() => props.messages, () => {
   flex-wrap: wrap;
 }
 
+.chat-action-card__file-label {
+  padding: 0 2px 0 0;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
 .chat-action-card__inline-actions {
   display: inline-flex;
   gap: 8px;
   flex-wrap: wrap;
+}
+
+.chat-action-card__details {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-color);
+}
+
+.chat-action-card__details summary {
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-secondary);
+}
+
+.chat-action-card__log {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 .chat-action-card__button {

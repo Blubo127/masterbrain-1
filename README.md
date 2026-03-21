@@ -8,6 +8,77 @@
 
 Airalogy Masterbrain API is deployed locally using FastAPI. You need to start the FastAPI service before calling the API.
 
+### Recommended: run as a single local app
+
+For regular local use, especially for non-developers, the preferred mode is:
+
+```shell
+# Build the web UI once
+cd src/web
+npm install
+npm run build
+
+# Return to the project root and launch the integrated local app
+cd ../..
+uv sync
+uv run masterbrain-desktop
+```
+
+This starts one local process that serves both the backend API and the built web UI, then opens Masterbrain in your default browser automatically.
+
+Masterbrain now uses a real local workspace directory as its primary editing model. After launch, you can either:
+
+- choose a folder from the left sidebar inside the app,
+- paste a directory path into the sidebar and open it, or
+- pass a workspace path on startup:
+
+```shell
+uv run masterbrain-desktop --workspace /path/to/project
+```
+
+Files created, edited, renamed, or deleted in the UI are written directly to that directory on disk.
+ZIP imports are unpacked directly into the selected workspace directory, and ZIP exports are produced directly from that directory on the backend.
+
+For source checkouts, chat-driven code editing still needs an OpenCode runtime.
+
+If `opencode` is already installed on your machine, you do not need to start a separate `opencode` service manually. As long as the `opencode` command is available on `PATH`, and you have already completed the frontend build and `uv sync` steps above, you can launch Masterbrain directly with:
+
+```shell
+uv run masterbrain-desktop
+```
+
+Masterbrain will invoke the local `opencode` binary automatically when chat-driven code editing is needed, using short-lived `opencode serve` processes internally.
+
+If you only want to verify that `opencode` is installed correctly, run:
+
+```shell
+opencode --version
+```
+
+If not, either install it globally:
+
+```shell
+curl -fsSL https://opencode.ai/install | bash
+```
+
+or vendor the official binary into this repo:
+
+```shell
+python3 scripts/vendor_opencode.py
+```
+
+### Packaging direction
+
+The project now also includes a packaging scaffold for a desktop-style local bundle:
+
+```shell
+./scripts/build_desktop_bundle.sh
+```
+
+This builds the frontend, downloads and bundles the matching OpenCode CLI, syncs the Python packaging toolchain, and creates a PyInstaller bundle under `dist/Masterbrain/`.
+
+End users running the packaged bundle do not need to install `opencode` separately.
+
 ### 1. Install `uv`
 
 Install `uv` locally before continuing.
@@ -67,6 +138,8 @@ Default frontend address:
 
 During development, the Vite dev server proxies `/api/*` requests to `http://127.0.0.1:8080`.
 
+This split frontend/backend mode is primarily for development. For day-to-day local usage, prefer the integrated `masterbrain-desktop` launcher. In development mode, OpenCode still needs to be available from `PATH` or vendored locally with `python3 scripts/vendor_opencode.py`.
+
 ### 6. Build the web frontend
 
 ```shell
@@ -85,6 +158,8 @@ Masterbrain API provides the following main feature modules:
 ### Chat Features
 
 - **Standard Chat**: `/api/endpoints/chat/qa/language` - Provides basic chat functionality
+- **Workspace**: `/api/endpoints/workspace` - Selects and manages the real local workspace directory used by the app, including ZIP import/export against that directory
+- **Code Edit**: `/api/endpoints/code_edit` - Materializes the current workspace snapshot into a temporary project directory and delegates code edits to a local OpenCode runtime
 - **Vision**: `/api/endpoints/chat/qa/vision` - Supports image processing and analysis
 - **Speech-to-Text**: `/api/endpoints/chat/qa/stt` - Supports voice input conversion to text
 - **Field Input**: `/api/endpoints/chat/field_input` - Structured field input processing

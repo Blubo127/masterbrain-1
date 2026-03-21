@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+import { ref, watch } from 'vue';
 import type { FileEntry } from '../../types/index.ts';
 import FileTree from './FileTree.vue';
 import logoIconUrl from '../../assets/airalogy-logo.svg';
@@ -9,6 +9,12 @@ const props = defineProps<{
   folders: string[];
   activeFile: FileEntry | null;
   hasManualChanges: boolean;
+  workspaceRoot: string | null;
+  workspaceEntryCount: number;
+  hasWorkspace: boolean;
+  canSelectDirectory: boolean;
+  isLoadingWorkspace: boolean;
+  workspaceError: string | null;
 }>();
 
 const emit = defineEmits<{
@@ -19,6 +25,9 @@ const emit = defineEmits<{
   rename: [oldPath: string, newName: string];
   createFile: [name: string, content: string];
   createFolder: [name: string];
+  selectWorkspace: [];
+  openWorkspace: [path: string];
+  refreshWorkspace: [];
   collapse: [];
 }>();
 
@@ -26,9 +35,19 @@ const inputRef = ref<HTMLInputElement | null>(null);
 const createMode = ref<'file' | 'folder' | null>(null);
 const newName = ref('');
 const showOverwriteWarning = ref(false);
+const workspacePathInput = ref('');
 let pendingFile: File | null = null;
 
+watch(
+  () => props.workspaceRoot,
+  (root) => {
+    workspacePathInput.value = root ?? '';
+  },
+  { immediate: true },
+);
+
 function handleUploadClick() {
+  if (!props.hasWorkspace) return;
   inputRef.value?.click();
 }
 
@@ -37,7 +56,7 @@ function handleFileChange(e: Event) {
   const file = target.files?.[0];
   if (!file) return;
   target.value = '';
-  if (props.hasManualChanges && props.files.length > 0) {
+  if (props.hasWorkspace && props.workspaceEntryCount > 0) {
     pendingFile = file;
     showOverwriteWarning.value = true;
   } else {
@@ -73,6 +92,12 @@ function handleCreateKey(e: KeyboardEvent) {
   if (e.key === 'Enter') handleCreate();
   if (e.key === 'Escape') { createMode.value = null; newName.value = ''; }
 }
+
+function handleOpenWorkspacePath() {
+  const trimmed = workspacePathInput.value.trim();
+  if (!trimmed) return;
+  emit('openWorkspace', trimmed);
+}
 </script>
 
 <template>
@@ -95,11 +120,13 @@ function handleCreateKey(e: KeyboardEvent) {
         <button
           title="New File"
           class="files-shell__action-button"
+          :disabled="!props.hasWorkspace"
           @click="createMode = 'file'; newName = ''"
         >＋ File</button>
         <button
           title="New Folder"
           class="files-shell__action-button"
+          :disabled="!props.hasWorkspace"
           @click="createMode = 'folder'; newName = ''"
         >＋ Folder</button>
         <button
@@ -113,10 +140,44 @@ function handleCreateKey(e: KeyboardEvent) {
     <div class="files-shell__meta">
       <span>{{ props.files.length }} files</span>
       <span>{{ props.folders.length }} folders</span>
-      <span>{{ props.hasManualChanges ? 'Local edits' : 'Synced workspace' }}</span>
+      <span>{{ props.workspaceEntryCount }} items on disk</span>
+      <span>{{ props.hasWorkspace ? 'Saving directly to disk' : 'No workspace selected' }}</span>
     </div>
 
-    <div v-if="createMode" class="files-shell__card">
+    <div class="files-shell__card">
+      <p class="files-shell__card-label">Workspace Directory</p>
+      <p class="files-shell__workspace-path">{{ props.workspaceRoot ?? 'No folder selected yet' }}</p>
+      <p v-if="props.workspaceError" class="files-shell__workspace-error">{{ props.workspaceError }}</p>
+      <input
+        v-model="workspacePathInput"
+        class="files-shell__input"
+        placeholder="/path/to/project"
+        @keydown.enter.prevent="handleOpenWorkspacePath"
+      />
+      <div class="files-shell__card-actions">
+        <button
+          class="files-shell__secondary-button"
+          :disabled="!workspacePathInput.trim()"
+          @click="handleOpenWorkspacePath"
+        >Open Path</button>
+        <button
+          v-if="props.canSelectDirectory"
+          class="files-shell__primary-button"
+          @click="emit('selectWorkspace')"
+        >{{ props.hasWorkspace ? 'Switch Folder' : 'Choose Folder' }}</button>
+        <button
+          v-if="props.hasWorkspace"
+          class="files-shell__secondary-button"
+          @click="emit('refreshWorkspace')"
+        >Refresh</button>
+      </div>
+      <p v-if="props.isLoadingWorkspace" class="files-shell__workspace-hint">Loading workspace…</p>
+      <p v-else-if="!props.hasWorkspace" class="files-shell__workspace-hint">
+        Pick a local folder first. Masterbrain will read and write files directly in that directory.
+      </p>
+    </div>
+
+    <div v-if="createMode && props.hasWorkspace" class="files-shell__card">
       <p class="files-shell__card-label">
         {{ createMode === 'file' ? 'New file name' : 'New folder name' }}
       </p>
@@ -135,7 +196,7 @@ function handleCreateKey(e: KeyboardEvent) {
 
     <div v-if="showOverwriteWarning" class="files-shell__warning">
       <p class="files-shell__warning-title">Overwrite warning</p>
-      <p class="files-shell__warning-text">The workspace contains local edits. Uploading a ZIP will replace the current content.</p>
+      <p class="files-shell__warning-text">The selected workspace already contains content. Importing a ZIP will replace the current workspace contents.</p>
       <div class="files-shell__card-actions">
         <button class="files-shell__warning-button" @click="confirmOverwrite">Overwrite</button>
         <button class="files-shell__secondary-button" @click="cancelOverwrite">Cancel</button>
@@ -147,6 +208,7 @@ function handleCreateKey(e: KeyboardEvent) {
         :files="props.files"
         :folders="props.folders"
         :active-file="props.activeFile"
+        :has-workspace="props.hasWorkspace"
         @select="(path) => emit('select', path)"
         @delete="(path) => emit('delete', path)"
         @rename="(oldPath, newNameVal) => emit('rename', oldPath, newNameVal)"
@@ -156,11 +218,12 @@ function handleCreateKey(e: KeyboardEvent) {
     <div class="files-shell__footer">
       <input ref="inputRef" type="file" accept=".zip" class="hidden" @change="handleFileChange" />
       <button
+        :disabled="!props.hasWorkspace"
         class="files-shell__primary-button"
         @click="handleUploadClick"
       >Upload ZIP</button>
       <button
-        :disabled="props.files.length === 0"
+        :disabled="!props.hasWorkspace"
         class="files-shell__secondary-button"
         @click="emit('download')"
       >Download ZIP</button>
@@ -274,6 +337,14 @@ function handleCreateKey(e: KeyboardEvent) {
   font-weight: 600;
 }
 
+.files-shell__action-button:disabled,
+.files-shell__primary-button:disabled,
+.files-shell__secondary-button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  transform: none;
+}
+
 .files-shell__icon-button {
   width: 34px;
   height: 34px;
@@ -316,6 +387,28 @@ function handleCreateKey(e: KeyboardEvent) {
   border-radius: 18px;
   background: var(--panel-solid);
   box-shadow: var(--shadow-md);
+}
+
+.files-shell__workspace-path {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+  word-break: break-word;
+}
+
+.files-shell__workspace-error {
+  margin: 10px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #dc2626;
+}
+
+.files-shell__workspace-hint {
+  margin: 10px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-muted);
 }
 
 .files-shell__card-label,

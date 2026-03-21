@@ -8,6 +8,7 @@ from openai.types.chat import ChatCompletionMessageParam
 
 from masterbrain.configs import select_client
 from masterbrain.types.error import LlmError
+from masterbrain.utils.llm import ensure_model_api_key, llm_http_exception
 
 from .types import VisionRequestBody
 
@@ -47,6 +48,7 @@ async def recognize_image(client, conversation_history: List[Dict[str, Any]], mo
 )
 async def handle_vision_request(request_data: VisionRequestBody) -> VisionRequestBody:
     _, _, model, conversation_history, _ = parse_request_data(request_data)
+    ensure_model_api_key(model)
     
     if not conversation_history:
         raise HTTPException(status_code=400, detail="No conversation history provided")
@@ -80,4 +82,4 @@ async def handle_vision_request(request_data: VisionRequestBody) -> VisionReques
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Unexpected error in vision processing: {str(e)}")
+        raise llm_http_exception(e, model) from e

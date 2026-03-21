@@ -8,6 +8,7 @@
 | npm | >= 9 |
 | Python | >= 3.13 |
 | uv | latest |
+| OpenCode CLI | latest, for source/dev runs |
 
 ---
 
@@ -17,11 +18,56 @@
 # Install Python dependencies
 uv sync
 
+# Install OpenCode runtime for source/dev runs (choose one)
+curl -fsSL https://opencode.ai/install | bash
+# or: brew install anomalyco/tap/opencode
+# or: python3 scripts/vendor_opencode.py
+
 # Start the API server (http://127.0.0.1:8080)
 uvicorn masterbrain.fastapi.main:app --reload --host 127.0.0.1 --port 8080
 ```
 
 > The backend must be running before the frontend dev server starts, otherwise API proxy calls will fail.
+>
+> In source and development mode, the OpenCode-backed code editing flow shells out to a local `opencode` binary from the FastAPI backend. Make sure `opencode` is on your `PATH`, or vendor it with `python3 scripts/vendor_opencode.py`.
+
+## Recommended Local App Mode
+
+For regular local use, build the frontend once and launch Masterbrain as a single local app:
+
+```bash
+# 1. Build the frontend
+cd src/web
+npm install
+npm run build
+
+# 2. Return to the project root and start the integrated app
+cd ../..
+uv run masterbrain-desktop
+```
+
+This starts the FastAPI backend, serves the built web UI from the same process, and opens Masterbrain in your default browser automatically.
+
+Masterbrain now uses a real local workspace directory as the primary editing model. You can choose a folder from the sidebar, paste a path into the sidebar, or start directly against a directory:
+
+```bash
+uv run masterbrain-desktop --workspace /path/to/project
+```
+
+Edits made in the UI are written directly to that directory on disk.
+ZIP imports are unpacked directly into the selected workspace directory by the backend, and ZIP exports are generated directly from that directory as well.
+
+When you run from source, this mode expects OpenCode to already be available on `PATH` or vendored locally. You do not need to start OpenCode manually. If `opencode` is already installed, you can launch directly with `uv run masterbrain-desktop`; Masterbrain will invoke the local `opencode` binary automatically when code editing is requested. If you just want to verify the installation, run `opencode --version`. When you run the packaged desktop bundle, OpenCode is bundled automatically.
+
+## Desktop Bundle Scaffold
+
+If you want a distributable local app bundle, use:
+
+```bash
+./scripts/build_desktop_bundle.sh
+```
+
+This currently uses PyInstaller, automatically downloads and bundles the matching OpenCode CLI, and outputs a bundle to `dist/Masterbrain/`.
 
 ---
 
@@ -38,6 +84,8 @@ npm run dev
 
 The Vite dev server proxies all `/api/*` requests to `http://127.0.0.1:8080`, so no CORS configuration is needed during development.
 
+This mode is mainly for frontend development. For normal local use, prefer `masterbrain-desktop`.
+
 ---
 
 ## 3. Key Dependencies
@@ -46,7 +94,6 @@ The Vite dev server proxies all `/api/*` requests to `http://127.0.0.1:8080`, so
 |---------|---------|
 | `vue` | UI framework (Vue 3 Composition API) |
 | `monaco-editor` | Code editor with `.aimd` / Python syntax highlighting |
-| `jszip` | ZIP upload/download in the browser |
 | `markdown-it` | Render AI chat messages as Markdown |
 | `tailwindcss` | Utility-first CSS (class-based dark mode via `darkMode: 'class'`) |
 
@@ -72,7 +119,7 @@ npm run build
 # Output: src/web/dist/
 ```
 
-To serve the built files from the FastAPI backend, copy `dist/` to your static files directory and configure FastAPI to serve it.
+The FastAPI backend now serves the built files in `src/web/dist/` automatically when they exist, including in `masterbrain-desktop` mode.
 
 ---
 
@@ -85,6 +132,11 @@ OPENAI_API_KEY=sk-...
 DASHSCOPE_API_KEY=sk-...
 TAVILY_API_KEY=tvly-...
 ```
+
+Notes:
+
+- `DASHSCOPE_API_KEY` is required if you use the default Qwen models for OpenCode-backed code editing.
+- `OPENAI_API_KEY` is required if you switch the code-edit runtime to a GPT model in the future.
 
 ---
 

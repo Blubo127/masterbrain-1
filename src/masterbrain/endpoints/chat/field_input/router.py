@@ -7,6 +7,7 @@ FastAPI router for the field_input endpoint.
 from fastapi import APIRouter, HTTPException
 
 from masterbrain.types.error import LlmError
+from masterbrain.utils.llm import ensure_model_api_key, llm_http_exception
 
 from .types import FieldInputRequest, FieldInputResponse
 from .logic import handle_slot_extraction
@@ -36,8 +37,11 @@ async def field_input(chat_request: FieldInputRequest) -> FieldInputResponse:
         FieldInputResponse: Updated conversation with slot filling operations
     """
     try:
+        ensure_model_api_key(chat_request.model.name)
         return await handle_slot_extraction(chat_request)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+        raise llm_http_exception(e, chat_request.model.name) from e

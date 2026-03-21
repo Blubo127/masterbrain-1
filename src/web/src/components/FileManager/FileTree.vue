@@ -6,6 +6,7 @@ const props = defineProps<{
   files: FileEntry[];
   folders: string[];
   activeFile: FileEntry | null;
+  hasWorkspace: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -81,8 +82,11 @@ function toggleFolder(folder: string) {
 </script>
 
 <template>
-  <div v-if="props.files.length === 0 && props.folders.length === 0" class="tree-empty">
-    Upload a ZIP or click ＋ to add files
+  <div v-if="!props.hasWorkspace" class="tree-empty">
+    Choose a workspace folder to start browsing and editing files.
+  </div>
+  <div v-else-if="props.files.length === 0 && props.folders.length === 0" class="tree-empty">
+    This workspace is empty. Create a file, add a folder, or import a ZIP archive.
   </div>
   <div v-else class="tree-list">
     <div v-for="group in groupByFolder(props.files, props.folders)" :key="group.folder ?? '__root__'">

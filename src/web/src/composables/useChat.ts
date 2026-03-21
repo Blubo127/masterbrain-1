@@ -1,7 +1,14 @@
 import { ref, shallowRef, type Ref, type ShallowRef } from 'vue';
-import type { ChatMessage, FileEntry, ModelConfig, ProtocolRouter } from '../types/index.ts';
+import type {
+  ChatMessage,
+  EditorSelection,
+  FileEntry,
+  ModelConfig,
+  ProtocolRouter,
+} from '../types/index.ts';
 import { DEFAULT_MODEL } from '../types/index.ts';
 import {
+  runCodeEdit,
   streamChatLanguage,
   streamProtocolGenV3,
   streamProtocolGenAimd,
@@ -11,10 +18,13 @@ import {
   extractPyBlocks,
 } from '../utils/apiClient.ts';
 
-export type SendIntent = 'generate' | 'chat';
+export type SendIntent = 'generate' | 'chat' | 'edit';
 
 export function useChat(
+  files: Readonly<ShallowRef<FileEntry[]>>,
   activeFile: Readonly<ShallowRef<FileEntry | null>>,
+  selection: Readonly<Ref<EditorSelection | null>>,
+  hasWorkspace: Readonly<Ref<boolean>>,
   onApplyContent: (content: string, type: 'aimd' | 'py') => void,
   onAutoApply: (name: string, content: string, type: 'aimd' | 'py') => void,
 ) {
@@ -38,6 +48,53 @@ export function useChat(
 
   function updateMessage(id: string, patch: Partial<ChatMessage>) {
     messages.value = messages.value.map(m => m.id === id ? { ...m, ...patch } : m);
+  }
+
+  async function runExplicitEditFlow(
+    assistantMsgId: string,
+    userMsgId: string,
+    userText: string,
+  ) {
+    if (!hasWorkspace.value) {
+      throw new Error('Select a workspace directory before using Edit mode.');
+    }
+
+    const result = await runCodeEdit({
+      model: model.value,
+      prompt: userText,
+      files: files.value.map(file => ({
+        path: file.path,
+        content: file.content,
+        type: file.type,
+      })),
+      active_file_path: activeFile.value?.path,
+      selection: selection.value ? {
+        text: selection.value.text,
+        start_offset: selection.value.startOffset,
+        end_offset: selection.value.endOffset,
+      } : undefined,
+      chat_history: messages.value
+        .filter(msg => msg.id !== assistantMsgId && msg.id !== userMsgId)
+        .map(msg => ({ role: msg.role, content: msg.content })),
+    });
+
+    const warnings = result.warnings.length > 0
+      ? `\n\nWarnings:\n${result.warnings.map(w => `- ${w}`).join('\n')}`
+      : '';
+    const changeNotice = result.edit_status === 'changed'
+      ? `\n\nPrepared ${result.changed_files.length} workspace change(s). Review them below, then click Apply or Apply all to write them into the current workspace.`
+      : '';
+    const noChangeNotice = result.edit_status === 'no_changes'
+      ? '\n\nNo supported workspace files were changed. OpenCode ran successfully, but it either answered directly or decided no edit was needed.'
+      : '';
+
+    updateMessage(assistantMsgId, {
+      content: `${result.message}${changeNotice}${noChangeNotice}${warnings}`,
+      streaming: false,
+      editStatus: result.edit_status,
+      executionLog: result.execution_log.length > 0 ? result.execution_log : undefined,
+      changedFiles: result.changed_files.length > 0 ? result.changed_files : undefined,
+    });
   }
 
   async function sendMessage(userText: string, intent: SendIntent) {
@@ -97,6 +154,10 @@ export function useChat(
     };
 
     try {
+      if ((intent === 'generate' || intent === 'edit') && !hasWorkspace.value) {
+        throw new Error('Select a workspace directory before generating or editing files.');
+      }
+
       if (intent === 'generate' && router.value === 'v1') {
         const aimdContent = await streamWithConfirm(
           'protocol.aimd', 'aimd',
@@ -138,6 +199,13 @@ export function useChat(
           content: fullContent + (aimdContent ? '\n\n✅ **protocol.aimd** written to editor' : ''),
         });
 
+      } else if (intent === 'edit') {
+        const assistantMsg: ChatMessage = {
+          id: crypto.randomUUID(), role: 'assistant', content: '', streaming: true,
+        };
+        messages.value = [...messages.value, assistantMsg];
+
+        await runExplicitEditFlow(assistantMsg.id, userMsg.id, userText);
       } else {
         const assistantMsg: ChatMessage = {
           id: crypto.randomUUID(), role: 'assistant', content: '', streaming: true,
@@ -157,7 +225,7 @@ export function useChat(
           });
         }
         for (const msg of messages.value) {
-          if (msg.id !== assistantMsg.id) {
+          if (msg.id !== assistantMsg.id && msg.id !== userMsg.id) {
             contextMessages.push({ role: msg.role, content: msg.content });
           }
         }
@@ -218,6 +286,20 @@ export function useChat(
     );
   }
 
+  function removeChangedFile(msgId: string, path: string) {
+    messages.value = messages.value.map(m => {
+      if (m.id !== msgId || !m.changedFiles) return m;
+      const remaining = m.changedFiles.filter(change => change.path !== path);
+      return { ...m, changedFiles: remaining.length > 0 ? remaining : undefined };
+    });
+  }
+
+  function dismissChangedFiles(msgId: string) {
+    messages.value = messages.value.map(m =>
+      m.id === msgId ? { ...m, changedFiles: undefined } : m
+    );
+  }
+
   function clearMessages() {
     messages.value = [];
   }
@@ -230,6 +312,8 @@ export function useChat(
     sendMessage,
     applyBlock,
     dismissBlock,
+    removeChangedFile,
+    dismissChangedFiles,
     clearMessages,
     confirmStep,
     regenerateStep,

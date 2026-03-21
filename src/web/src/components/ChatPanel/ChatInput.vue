@@ -2,12 +2,12 @@
 import { ref, watch } from 'vue';
 import type { ModelConfig } from '../../types/index.ts';
 import { SUPPORTED_MODELS } from '../../types/index.ts';
-import { detectIntent } from '../../utils/apiClient.ts';
 import type { SendIntent } from '../../composables/useChat.ts';
 
 const props = defineProps<{
   isStreaming: boolean;
   model: ModelConfig;
+  hasWorkspace: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -17,18 +17,24 @@ const emit = defineEmits<{
 }>();
 
 const text = ref('');
-const detectedIntent = ref<SendIntent>('chat');
-const intentOverridden = ref(false);
+const selectedIntent = ref<SendIntent>('chat');
 const showRaw = ref(false);
 const rawContent = ref('');
 const rawType = ref<'aimd' | 'py'>('aimd');
 const textareaRef = ref<HTMLTextAreaElement | null>(null);
 
-watch(text, (val) => {
-  if (intentOverridden.value) return;
-  if (val.trim().length < 3) { detectedIntent.value = 'chat'; return; }
-  detectedIntent.value = detectIntent(val);
-});
+watch(
+  () => props.hasWorkspace,
+  (hasWorkspace) => {
+    if (!hasWorkspace && selectedIntent.value !== 'chat') {
+      selectedIntent.value = 'chat';
+    }
+    if (!hasWorkspace) {
+      showRaw.value = false;
+      rawContent.value = '';
+    }
+  },
+);
 
 function handleTextChange(e: Event) {
   const target = e.target as HTMLTextAreaElement;
@@ -40,9 +46,8 @@ function handleTextChange(e: Event) {
 function handleSend() {
   const trimmed = text.value.trim();
   if (!trimmed || props.isStreaming) return;
-  emit('send', trimmed, detectedIntent.value);
+  emit('send', trimmed, selectedIntent.value);
   text.value = '';
-  intentOverridden.value = false;
   setTimeout(() => {
     if (textareaRef.value) textareaRef.value.style.height = 'auto';
   }, 0);
@@ -56,6 +61,7 @@ function handleKeyDown(e: KeyboardEvent) {
 }
 
 function handleApplyRaw() {
+  if (!props.hasWorkspace) return;
   if (!rawContent.value.trim()) return;
   emit('applyRaw', rawContent.value.trim(), rawType.value);
   rawContent.value = '';
@@ -63,8 +69,8 @@ function handleApplyRaw() {
 }
 
 function setIntent(intent: SendIntent) {
-  detectedIntent.value = intent;
-  intentOverridden.value = true;
+  if ((intent === 'edit' || intent === 'generate') && !props.hasWorkspace) return;
+  selectedIntent.value = intent;
 }
 </script>
 
@@ -117,7 +123,10 @@ function setIntent(intent: SendIntent) {
       </label>
       <button
         :class="['composer-shell__ghost-button', showRaw ? 'composer-shell__ghost-button--active' : '']"
-        title="Paste raw .aimd or .py content directly into the editor"
+        :disabled="!props.hasWorkspace"
+        :title="props.hasWorkspace
+          ? 'Paste raw .aimd or .py content directly into the editor'
+          : 'Choose a workspace folder before writing files'"
         @click="showRaw = !showRaw"
       >Paste code</button>
     </div>
@@ -126,7 +135,11 @@ function setIntent(intent: SendIntent) {
       <textarea
         ref="textareaRef"
         :value="text"
-        :placeholder="props.isStreaming ? 'Generating...' : 'Message (Enter to send, Shift+Enter for newline)'"
+        :placeholder="props.isStreaming ? 'Generating...' : selectedIntent === 'chat'
+          ? 'Chat about the current file or workspace (Enter to send, Shift+Enter for newline)'
+          : selectedIntent === 'edit'
+            ? 'Describe the code change you want to apply to the workspace'
+            : 'Describe the protocol you want to generate in the selected workspace'"
         :disabled="props.isStreaming"
         rows="1"
         class="composer-shell__textarea"
@@ -137,17 +150,31 @@ function setIntent(intent: SendIntent) {
       <div class="composer-shell__footer">
         <div class="composer-shell__mode-group">
           <button
-            :class="['composer-shell__mode-button', detectedIntent === 'chat' ? 'composer-shell__mode-button--active' : '']"
+            :class="['composer-shell__mode-button', selectedIntent === 'chat' ? 'composer-shell__mode-button--active' : '']"
             @click="setIntent('chat')"
           >Chat</button>
           <button
-            :class="['composer-shell__mode-button', detectedIntent === 'generate' ? 'composer-shell__mode-button--active' : '']"
+            :class="['composer-shell__mode-button', selectedIntent === 'edit' ? 'composer-shell__mode-button--active' : '']"
+            :disabled="!props.hasWorkspace"
+            :title="props.hasWorkspace ? 'Apply workspace edits through OpenCode' : 'Choose a workspace folder to enable Edit mode'"
+            @click="setIntent('edit')"
+          >Edit</button>
+          <button
+            :class="['composer-shell__mode-button', selectedIntent === 'generate' ? 'composer-shell__mode-button--active' : '']"
+            :disabled="!props.hasWorkspace"
+            :title="props.hasWorkspace ? 'Generate protocol files into the selected workspace' : 'Choose a workspace folder to enable Generate mode'"
             @click="setIntent('generate')"
           >Generate</button>
-          <span class="composer-shell__mode-hint">{{ intentOverridden ? 'Manually selected' : 'Auto-detected' }}</span>
+          <span class="composer-shell__mode-hint">
+            {{ selectedIntent === 'chat'
+              ? 'Conversation only'
+              : selectedIntent === 'edit'
+                ? (props.hasWorkspace ? 'Workspace editing via OpenCode' : 'Workspace required')
+                : (props.hasWorkspace ? 'Protocol generation into workspace' : 'Workspace required') }}
+          </span>
         </div>
         <button
-          :disabled="!text.trim() || props.isStreaming"
+          :disabled="!text.trim() || props.isStreaming || ((selectedIntent === 'edit' || selectedIntent === 'generate') && !props.hasWorkspace)"
           class="composer-shell__send-button"
           @click="handleSend"
         >
@@ -243,12 +270,24 @@ function setIntent(intent: SendIntent) {
   font-weight: 700;
 }
 
+.composer-shell__ghost-button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  transform: none;
+}
+
 .composer-shell__ghost-button:hover,
 .composer-shell__primary-button:hover,
 .composer-shell__mode-button:hover,
 .composer-shell__send-button:hover,
 .composer-shell__type-chip:hover {
   transform: translateY(-1px);
+}
+
+.composer-shell__mode-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+  transform: none;
 }
 
 .composer-shell__ghost-button--active {

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref } from 'vue';
-import type { ChatMessage, ModelConfig, ProtocolRouter } from '../../types/index.ts';
+import type { ChatMessage, CodeChange, ModelConfig, ProtocolRouter } from '../../types/index.ts';
 import type { Theme } from '../../composables/useTheme.ts';
 import type { SendIntent } from '../../composables/useChat.ts';
 import MessageList from './MessageList.vue';
@@ -13,6 +13,7 @@ const props = defineProps<{
   model: ModelConfig;
   router: ProtocolRouter;
   theme: Theme;
+  hasWorkspace: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -23,6 +24,10 @@ const emit = defineEmits<{
   applyBlock: [block: string, msgId: string];
   dismissBlock: [msgId: string];
   previewBlock: [block: string, msgId: string];
+  previewChangedFile: [change: CodeChange, msgId: string];
+  applyChangedFile: [change: CodeChange, msgId: string];
+  applyAllChangedFiles: [changes: CodeChange[], msgId: string];
+  dismissChangedFiles: [msgId: string];
   applyRaw: [content: string, type: 'aimd' | 'py'];
   clear: [];
   confirmStep: [];
@@ -111,10 +116,15 @@ const ROUTER_INFO: Record<ProtocolRouter, { label: string; desc: string }> = {
 
     <MessageList
       :messages="props.messages"
+      :has-workspace="props.hasWorkspace"
       @example-click="(text) => !props.isStreaming && emit('send', text, 'chat')"
       @apply-block="(block, msgId) => emit('applyBlock', block, msgId)"
       @dismiss-block="(msgId) => emit('dismissBlock', msgId)"
       @preview-block="(block, msgId) => emit('previewBlock', block, msgId)"
+      @preview-changed-file="(change, msgId) => emit('previewChangedFile', change, msgId)"
+      @apply-changed-file="(change, msgId) => emit('applyChangedFile', change, msgId)"
+      @apply-all-changed-files="(changes, msgId) => emit('applyAllChangedFiles', changes, msgId)"
+      @dismiss-changed-files="(msgId) => emit('dismissChangedFiles', msgId)"
       @confirm-step="emit('confirmStep')"
       @regenerate-step="emit('regenerateStep')"
     />
@@ -123,6 +133,7 @@ const ROUTER_INFO: Record<ProtocolRouter, { label: string; desc: string }> = {
       <ChatInput
         :is-streaming="props.isStreaming"
         :model="props.model"
+        :has-workspace="props.hasWorkspace"
         @update:model="(m) => emit('update:model', m)"
         @send="(text, intent) => emit('send', text, intent)"
         @apply-raw="(content, type) => emit('applyRaw', content, type)"

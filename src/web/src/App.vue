@@ -6,7 +6,7 @@ import ChatPanel from './components/ChatPanel/ChatPanel.vue';
 import { useFileManager } from './composables/useFileManager.ts';
 import { useChat } from './composables/useChat.ts';
 import { provideTheme, type Theme } from './composables/useTheme.ts';
-import type { PreviewState } from './types/index.ts';
+import type { CodeChange, EditorSelection, PreviewState } from './types/index.ts';
 
 const leftOpen = ref(true);
 const rightOpen = ref(true);
@@ -22,10 +22,13 @@ watch(theme, (val) => {
 
 const {
   files, activeFile, hasManualChanges, folders,
+  workspaceRoot, workspaceEntryCount, canSelectDirectory, isLoadingWorkspace, workspaceError, hasWorkspace,
   uploadZip, downloadZip, updateFileContent, createFile, deleteFile, renameFile, selectFile, createFolder,
+  refreshWorkspace, selectWorkspace, openWorkspace,
 } = useFileManager();
 
 const previewState = ref<PreviewState | null>(null);
+const editorSelection = ref<EditorSelection | null>(null);
 
 function handleApplyContent(content: string, type: 'aimd' | 'py') {
   if (activeFile.value) {
@@ -42,12 +45,32 @@ function handleAutoApply(name: string, content: string, type: 'aimd' | 'py') {
 
 const {
   messages, isStreaming, model, router,
-  sendMessage, applyBlock, dismissBlock, clearMessages,
+  sendMessage, applyBlock, dismissBlock, removeChangedFile, dismissChangedFiles, clearMessages,
   confirmStep, regenerateStep,
-} = useChat(activeFile, handleApplyContent, handleAutoApply);
+} = useChat(files, activeFile, editorSelection, hasWorkspace, handleApplyContent, handleAutoApply);
 
 function handleEditorChange(content: string) {
   if (activeFile.value) updateFileContent(activeFile.value.path, content);
+}
+
+function handleSelectionChange(selection: EditorSelection | null) {
+  editorSelection.value = selection;
+}
+
+function applyCodeChange(change: CodeChange, activate = false) {
+  if (change.status === 'deleted') {
+    deleteFile(change.path);
+    return;
+  }
+
+  const existing = files.value.find(file => file.path === change.path);
+  if (existing) {
+    updateFileContent(change.path, change.content);
+    if (activate) selectFile(change.path);
+    return;
+  }
+
+  createFile(change.path, change.content, change.type, false, activate);
 }
 
 function handleApplyBlock(block: string, msgId: string) {
@@ -60,13 +83,42 @@ function handlePreviewBlock(block: string, msgId: string) {
   const isPy = block.startsWith('__py__');
   const content = isPy ? block.slice(6) : block;
   const type = isPy ? 'py' as const : 'aimd' as const;
-  previewState.value = { content, type, msgId };
+  previewState.value = {
+    source: 'block',
+    content,
+    type,
+    msgId,
+    name: type === 'aimd' ? 'preview.aimd' : 'preview.py',
+  };
+}
+
+function handlePreviewChangedFile(change: CodeChange, msgId: string) {
+  previewState.value = {
+    source: 'change',
+    content: change.content,
+    type: change.type,
+    msgId,
+    name: change.name,
+    path: change.path,
+  };
 }
 
 function handleKeepPreview() {
   if (!previewState.value) return;
-  handleApplyContent(previewState.value.content, previewState.value.type);
-  dismissBlock(previewState.value.msgId);
+  if (previewState.value.source === 'change' && previewState.value.path) {
+    applyCodeChange({
+      path: previewState.value.path,
+      name: previewState.value.name,
+      type: previewState.value.type,
+      status: 'modified',
+      content: previewState.value.content,
+      diff: '',
+    }, true);
+    removeChangedFile(previewState.value.msgId, previewState.value.path);
+  } else {
+    handleApplyContent(previewState.value.content, previewState.value.type);
+    dismissBlock(previewState.value.msgId);
+  }
   previewState.value = null;
 }
 
@@ -76,6 +128,24 @@ function handleDiscardPreview() {
 
 function handleCreateFile(name: string, content: string) {
   createFile(name, content, undefined, true);
+}
+
+function handleApplyChangedFile(change: CodeChange, msgId: string) {
+  applyCodeChange(change, change.status !== 'deleted');
+  removeChangedFile(msgId, change.path);
+  if (previewState.value?.source === 'change' && previewState.value.path === change.path) {
+    previewState.value = null;
+  }
+}
+
+function handleApplyAllChangedFiles(changes: CodeChange[], msgId: string) {
+  for (const change of changes) {
+    applyCodeChange(change, false);
+  }
+  dismissChangedFiles(msgId);
+  if (previewState.value?.source === 'change') {
+    previewState.value = null;
+  }
 }
 </script>
 
@@ -87,6 +157,12 @@ function handleCreateFile(name: string, content: string) {
         :folders="folders"
         :active-file="activeFile"
         :has-manual-changes="hasManualChanges"
+        :workspace-root="workspaceRoot"
+        :workspace-entry-count="workspaceEntryCount"
+        :has-workspace="hasWorkspace"
+        :can-select-directory="canSelectDirectory"
+        :is-loading-workspace="isLoadingWorkspace"
+        :workspace-error="workspaceError"
         @upload="uploadZip"
         @download="downloadZip"
         @select="selectFile"
@@ -94,6 +170,9 @@ function handleCreateFile(name: string, content: string) {
         @rename="renameFile"
         @create-file="handleCreateFile"
         @create-folder="createFolder"
+        @select-workspace="selectWorkspace"
+        @open-workspace="openWorkspace"
+        @refresh-workspace="refreshWorkspace"
         @collapse="leftOpen = false"
       />
     </div>
@@ -115,9 +194,11 @@ function handleCreateFile(name: string, content: string) {
         :preview-state="previewState"
         :is-dark="theme === 'dark'"
         :model="model"
+        :has-workspace="hasWorkspace"
         @change="handleEditorChange"
         @keep-preview="handleKeepPreview"
         @discard-preview="handleDiscardPreview"
+        @selection-change="handleSelectionChange"
       />
     </div>
 
@@ -128,6 +209,7 @@ function handleCreateFile(name: string, content: string) {
         :model="model"
         :router="router"
         :theme="theme"
+        :has-workspace="hasWorkspace"
         @update:model="model = $event"
         @update:router="router = $event"
         @theme-toggle="theme = theme === 'dark' ? 'light' : 'dark'"
@@ -135,6 +217,10 @@ function handleCreateFile(name: string, content: string) {
         @apply-block="handleApplyBlock"
         @dismiss-block="dismissBlock"
         @preview-block="handlePreviewBlock"
+        @preview-changed-file="handlePreviewChangedFile"
+        @apply-changed-file="handleApplyChangedFile"
+        @apply-all-changed-files="handleApplyAllChangedFiles"
+        @dismiss-changed-files="dismissChangedFiles"
         @apply-raw="handleApplyContent"
         @clear="clearMessages"
         @confirm-step="confirmStep"

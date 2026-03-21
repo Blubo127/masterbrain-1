@@ -5,7 +5,7 @@ Configuration file for `masterbrain`.
 import os
 
 # from enum import Enum
-from typing import Literal, get_args
+from typing import Callable, Literal, get_args
 
 from dotenv import load_dotenv
 from openai import AsyncOpenAI
@@ -74,20 +74,46 @@ DEFAULT_TEMPERATURE = 0
 
 # MARK: Clients
 
-OPENAI_CLIENT = AsyncOpenAI(
-    api_key=OPENAI_API_KEY,
-    base_url=OPENAI_BASE_URL if OPENAI_BASE_URL else None,
-)
+class LazyAsyncOpenAI:
+    """Instantiate the OpenAI-compatible client only when it is first used."""
 
-DASHSCOPE_CLIENT = AsyncOpenAI(
-    api_key=DASHSCOPE_API_KEY,
-    base_url=DASHSCOPE_BASE_URL
-    if DASHSCOPE_BASE_URL
-    else "https://dashscope.aliyuncs.com/compatible-mode/v1",
-)
+    def __init__(self, factory: Callable[[], AsyncOpenAI]) -> None:
+        self._factory = factory
+        self._client: AsyncOpenAI | None = None
+
+    def _get_client(self) -> AsyncOpenAI:
+        if self._client is None:
+            self._client = self._factory()
+        return self._client
+
+    def __getattr__(self, name: str):
+        return getattr(self._get_client(), name)
 
 
-def select_client(model: AvailableModel) -> AsyncOpenAI:
+AsyncOpenAIClient = AsyncOpenAI | LazyAsyncOpenAI
+
+
+def _build_openai_client() -> AsyncOpenAI:
+    return AsyncOpenAI(
+        api_key=OPENAI_API_KEY,
+        base_url=OPENAI_BASE_URL if OPENAI_BASE_URL else None,
+    )
+
+
+def _build_dashscope_client() -> AsyncOpenAI:
+    return AsyncOpenAI(
+        api_key=DASHSCOPE_API_KEY,
+        base_url=DASHSCOPE_BASE_URL
+        if DASHSCOPE_BASE_URL
+        else "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    )
+
+
+OPENAI_CLIENT: AsyncOpenAIClient = LazyAsyncOpenAI(_build_openai_client)
+DASHSCOPE_CLIENT: AsyncOpenAIClient = LazyAsyncOpenAI(_build_dashscope_client)
+
+
+def select_client(model: AvailableModel) -> AsyncOpenAIClient:
     """
     Select the client based on the model.
 
