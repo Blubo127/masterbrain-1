@@ -95,6 +95,21 @@ uv run pytest
 - Backend: [apps/api/README.md](apps/api/README.md)
 - Frontend: [apps/web/SETUP.md](apps/web/SETUP.md)
 
+## Documentation Site
+
+Run the VitePress docs site from the repo root:
+
+```shell
+npm install
+npm run docs:dev
+```
+
+Build the static site:
+
+```shell
+npm run docs:build
+```
+
 ## Citation
 
 If you use Airalogy Masterbrain in your research or project, or if this project has been helpful to your work, please cite the following paper:

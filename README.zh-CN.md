@@ -95,6 +95,21 @@ uv run pytest
 - 后端：[apps/api/README.md](apps/api/README.md)
 - 前端：[apps/web/SETUP.md](apps/web/SETUP.md)
 
+## 文档站
+
+在仓库根目录运行 VitePress 文档站：
+
+```shell
+npm install
+npm run docs:dev
+```
+
+构建静态站点：
+
+```shell
+npm run docs:build
+```
+
 ## 引用
 
 如果 Airalogy Masterbrain 对你的研究或项目有帮助，欢迎引用以下论文：
