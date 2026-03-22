@@ -106,6 +106,8 @@ def extract_archive(archive_bytes: bytes, target_dir: Path, target: str) -> Path
 
 
 def main() -> None:
+    api_root = Path(__file__).resolve().parents[1]
+
     parser = argparse.ArgumentParser(description="Vendor the OpenCode CLI for packaging.")
     parser.add_argument(
         "--target",
@@ -119,7 +121,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--output-root",
-        default="vendor/opencode",
+        default=str(api_root / "vendor" / "opencode"),
         help="Directory where the vendored OpenCode binary should be stored.",
     )
     parser.add_argument(

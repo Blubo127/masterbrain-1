@@ -72,7 +72,7 @@ def main() -> None:
 
     if WEB_DIST_DIR is None:
         raise RuntimeError(
-            "Built web assets were not found. Run `npm run build` in `src/web` first, "
+            "Built web assets were not found. Run `npm run build` in `apps/web` first, "
             "or set `MASTERBRAIN_WEB_DIST` to a built frontend directory."
         )
 

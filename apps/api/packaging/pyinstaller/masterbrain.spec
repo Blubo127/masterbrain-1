@@ -3,13 +3,13 @@
 from pathlib import Path
 
 
-project_root = Path(__file__).resolve().parents[2]
-web_dist = project_root / "src" / "web" / "dist"
-vendored_opencode = project_root / "vendor" / "opencode"
+api_root = Path(__file__).resolve().parents[2]
+web_dist = api_root.parent / "web" / "dist"
+vendored_opencode = api_root / "vendor" / "opencode"
 
 if not web_dist.exists():
     raise SystemExit(
-        "Frontend build not found. Run `npm run build` inside `src/web` before packaging."
+        "Frontend build not found. Run `npm run build` inside `apps/web` before packaging."
     )
 
 if not vendored_opencode.exists():
@@ -19,8 +19,8 @@ if not vendored_opencode.exists():
 
 
 a = Analysis(
-    [str(project_root / "src" / "masterbrain" / "desktop.py")],
-    pathex=[str(project_root / "src")],
+    [str(api_root / "src" / "masterbrain" / "desktop.py")],
+    pathex=[str(api_root / "src")],
     binaries=[],
     datas=[
         (str(web_dist), "web_dist"),

@@ -15,6 +15,8 @@
 ## 1. Backend
 
 ```bash
+cd apps/api
+
 # Install Python dependencies
 uv sync
 
@@ -24,7 +26,7 @@ curl -fsSL https://opencode.ai/install | bash
 # or: python3 scripts/vendor_opencode.py
 
 # Start the API server (http://127.0.0.1:8080)
-uvicorn masterbrain.fastapi.main:app --reload --host 127.0.0.1 --port 8080
+uv run uvicorn masterbrain.fastapi.main:app --reload --host 127.0.0.1 --port 8080
 ```
 
 > The backend must be running before the frontend dev server starts, otherwise API proxy calls will fail.
@@ -37,12 +39,12 @@ For regular local use, build the frontend once and launch Masterbrain as a singl
 
 ```bash
 # 1. Build the frontend
-cd src/web
+cd apps/web
 npm install
 npm run build
 
-# 2. Return to the project root and start the integrated app
-cd ../..
+# 2. Start the integrated app from apps/api
+cd ../api
 uv run masterbrain-desktop
 ```
 
@@ -64,17 +66,18 @@ When you run from source, this mode expects OpenCode to already be available on 
 If you want a distributable local app bundle, use:
 
 ```bash
+cd apps/api
 ./scripts/build_desktop_bundle.sh
 ```
 
-This currently uses PyInstaller, automatically downloads and bundles the matching OpenCode CLI, and outputs a bundle to `dist/Masterbrain/`.
+This currently uses PyInstaller, automatically downloads and bundles the matching OpenCode CLI, and outputs a bundle to `apps/api/dist/Masterbrain/`.
 
 ---
 
 ## 2. Frontend
 
 ```bash
-cd src/web
+cd apps/web
 
 npm install
 
@@ -114,18 +117,18 @@ npm run preview      # Preview production build
 ## 5. Production Build
 
 ```bash
-cd src/web
+cd apps/web
 npm run build
-# Output: src/web/dist/
+# Output: apps/web/dist/
 ```
 
-The FastAPI backend now serves the built files in `src/web/dist/` automatically when they exist, including in `masterbrain-desktop` mode.
+The FastAPI backend now serves the built files in `apps/web/dist/` automatically when they exist, including in `masterbrain-desktop` mode.
 
 ---
 
 ## 6. Environment Variables
 
-Create a `.env` file in the project root (next to `pyproject.toml`) if needed:
+Create a `.env` file in `apps/api/` (next to `pyproject.toml`) if needed:
 
 ```env
 OPENAI_API_KEY=sk-...
@@ -142,22 +145,24 @@ Notes:
 
 ## 7. Project Structure
 
-```
+```txt
 masterbrain/
-├── pyproject.toml          # Python project config
-├── src/
-│   ├── masterbrain/        # FastAPI backend
-│   │   └── fastapi/
-│   │       └── main.py     # API entrypoint
-│   └── web/                # Vue 3 frontend
+├── apps/
+│   ├── api/
+│   │   ├── pyproject.toml
+│   │   └── src/
+│   │       └── masterbrain/
+│   │           └── fastapi/
+│   │               └── main.py
+│   └── web/
 │       ├── package.json
-│       ├── vite.config.ts  # Dev proxy: /api → :8080
-│       ├── tailwind.config.js
+│       ├── vite.config.ts
 │       └── src/
-│           ├── main.ts         # Entry point
-│           ├── App.vue         # Root component
-│           ├── composables/    # useTheme, useFileManager, useChat
-│           ├── components/     # FileManager, EditorPanel, ChatPanel
-│           ├── types/          # TypeScript interfaces
-│           └── utils/          # apiClient, aimdParser, zipUtils
+│           ├── main.ts
+│           ├── App.vue
+│           ├── composables/
+│           ├── components/
+│           ├── types/
+│           └── utils/
+└── docs/
 ```

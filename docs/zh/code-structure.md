@@ -1,5 +1,7 @@
 # 代码结构
 
+当前仓库采用 monorepo 结构，后端代码位于 `apps/api/src/masterbrain/`。下面的说明针对后端 Python 包 `masterbrain` 本身的内部组织方式。
+
 在`masterbrain`项目中，不同AI功能的代码管理主要是基于Endpoints。每个Endpoint对应一个特定的AI功能，负责处理相关的请求和响应，每个Endpoint具有独立的数据IO的类型约束和功能实现。其基本原则如下：
 
 1. 每个Endpoint可以被视为一个相对独立AI功能的封装。因此，对于一个Endpoint而言，我们的首要封装目标是封装其数据IO的结构，也即，对于每个Endpoint，其输入和输出数据的结构必须要是稳定且可预期的。因此每个Endpoint需要具有一个独立的数据类型文件（`types.py`或文件结构复杂可用`types/__init__.py`）来对数据IO进行约束。也就是说，对于每个Endpoint，要能够让开发者只看`types.py`文件就能了解该Endpoint的输入和输出数据结构，而不需要深入到具体的实现细节中去（该设计有助于前后端容易协作）。

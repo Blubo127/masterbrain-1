@@ -1,12 +1,13 @@
 """Integration tests for protocol debug module"""
 
 import json
+from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
-import pytest
 from fastapi.testclient import TestClient
 
-from masterbrain.endpoints.protocol_debug.types import ProtocolDebugInput
+
+FIXTURE_DIR = Path(__file__).resolve().parent
 
 
 class TestProtocolDebugIntegration:
@@ -21,13 +22,13 @@ class TestProtocolDebugIntegration:
         mock_response.choices = [AsyncMock()]
         mock_response.choices[
             0
-        ].message.content = '{"fixed_segment": "Fixed protocol", "reason_and_basis_for_fix": "Test reason"}'
+        ].message.content = '{"has_errors": true, "fixed_segment": "Fixed protocol", "reason": "Test reason"}'
         mock_client.chat.completions.create.return_value = mock_response
         mock_select_client.return_value = mock_client
 
         # Load test data
         with open(
-            "tests/test_endpoints/test_protocol_debug/demo_protocol_debug_input.json",
+            FIXTURE_DIR / "demo_protocol_debug_input.json",
             "r",
         ) as f:
             input_data = json.load(f)
@@ -40,28 +41,14 @@ class TestProtocolDebugIntegration:
         response_data = response.json()
 
         # Check required fields
-        required_fields = [
-            "chat_id",
-            "user_id",
-            "full_protocol",
-            "suspect_protocol",
-            "model",
-            "fixed_protocol",
-            "response",
-        ]
+        required_fields = ["has_errors", "fixed_protocol", "response"]
         for field in required_fields:
             assert field in response_data, f"Missing field: {field}"
 
-        # Verify input data is preserved
-        assert response_data["chat_id"] == input_data["chat_id"]
-        assert response_data["user_id"] == input_data["user_id"]
-        assert response_data["full_protocol"] == input_data["full_protocol"]
-        assert response_data["suspect_protocol"] == input_data["suspect_protocol"]
-        assert response_data["model"]["name"] == input_data["model"]["name"]
-
         # Verify output fields are populated
-        assert response_data["fixed_protocol"] is not None
-        assert response_data["response"] is not None
+        assert response_data["has_errors"] is True
+        assert response_data["fixed_protocol"] == "Fixed protocol"
+        assert response_data["response"] == "Test reason"
 
     @patch("masterbrain.endpoints.protocol_debug.logic.select_client")
     def test_protocol_debug_with_different_models(
@@ -74,13 +61,11 @@ class TestProtocolDebugIntegration:
         mock_response.choices = [AsyncMock()]
         mock_response.choices[
             0
-        ].message.content = '{"fixed_segment": "Fixed protocol", "reason_and_basis_for_fix": "Test reason"}'
+        ].message.content = '{"has_errors": true, "fixed_segment": "Fixed protocol", "reason": "Test reason"}'
         mock_client.chat.completions.create.return_value = mock_response
         mock_select_client.return_value = mock_client
 
         base_input = {
-            "chat_id": "test_chat_123",
-            "user_id": "test_user_456",
             "full_protocol": "# Test Protocol\n\nExperimenter: {{var|experimenter}}",
             "suspect_protocol": "{{step|step1,1}} First step",
         }
@@ -104,14 +89,14 @@ class TestProtocolDebugIntegration:
             assert response.status_code == 200
 
             response_data = response.json()
-            assert response_data["model"]["name"] == model_config["name"]
-            assert (
-                response_data["model"]["enable_thinking"]
-                == model_config["enable_thinking"]
-            )
-            assert (
-                response_data["model"]["enable_search"] == model_config["enable_search"]
-            )
+            assert response_data["has_errors"] is True
+            assert response_data["fixed_protocol"] == "Fixed protocol"
+            call_kwargs = mock_client.chat.completions.create.call_args.kwargs
+            assert call_kwargs["model"] == model_config["name"]
+            assert call_kwargs["extra_body"] == {
+                "enable_thinking": model_config["enable_thinking"],
+                "enable_search": model_config["enable_search"],
+            }
 
     def test_protocol_debug_error_handling(self, client: TestClient):
         """Test error handling in protocol debug"""
@@ -151,7 +136,7 @@ class TestProtocolDebugIntegration:
         mock_response.choices = [AsyncMock()]
         mock_response.choices[
             0
-        ].message.content = '{"fixed_segment": "Fixed protocol", "reason_and_basis_for_fix": "Test reason"}'
+        ].message.content = '{"has_errors": true, "fixed_segment": "Fixed protocol", "reason": "Test reason"}'
         mock_client.chat.completions.create.return_value = mock_response
         mock_select_client.return_value = mock_client
 
@@ -201,7 +186,7 @@ class TestProtocolDebugIntegration:
         mock_response.choices = [AsyncMock()]
         mock_response.choices[
             0
-        ].message.content = '{"fixed_segment": "Fixed protocol", "reason_and_basis_for_fix": "Test reason"}'
+        ].message.content = '{"has_errors": true, "fixed_segment": "Fixed protocol", "reason": "Test reason"}'
         mock_client.chat.completions.create.return_value = mock_response
         mock_select_client.return_value = mock_client
 
@@ -226,10 +211,8 @@ class TestProtocolDebugIntegration:
 
         # Check that all responses have the same structure
         for response in responses:
+            assert "has_errors" in response
             assert "fixed_protocol" in response
             assert "response" in response
-            assert "chat_id" in response
-            assert "user_id" in response
-            assert "full_protocol" in response
-            assert "suspect_protocol" in response
-            assert "model" in response
+            assert set(response) == {"has_errors", "fixed_protocol", "response"}
+            assert response["has_errors"] is True

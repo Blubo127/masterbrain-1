@@ -102,9 +102,11 @@ def _resolve_web_dist_dir() -> Path | None:
         if candidate.exists():
             return candidate
 
-    repo_candidate = Path(__file__).resolve().parents[2] / "web" / "dist"
-    if repo_candidate.exists():
-        return repo_candidate
+    api_root = Path(__file__).resolve().parents[3]
+    if api_root.name == "api" and api_root.parent.name == "apps":
+        repo_candidate = api_root.parent / "web" / "dist"
+        if repo_candidate.exists():
+            return repo_candidate
 
     if getattr(sys, "frozen", False):
         meipass = getattr(sys, "_MEIPASS", None)

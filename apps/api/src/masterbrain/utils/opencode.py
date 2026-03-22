@@ -52,8 +52,12 @@ def _candidate_roots() -> list[Path]:
     if env_dir:
         roots.append(Path(env_dir).expanduser().resolve())
 
-    project_root = Path(__file__).resolve().parents[3]
-    roots.append(project_root / "vendor" / "opencode")
+    app_root = Path(__file__).resolve().parents[3]
+    roots.append(app_root / "vendor" / "opencode")
+
+    if app_root.name == "api" and app_root.parent.name == "apps":
+        repo_root = app_root.parents[1]
+        roots.append(repo_root / "vendor" / "opencode")
 
     if getattr(sys, "frozen", False):
         meipass = getattr(sys, "_MEIPASS", None)
@@ -110,5 +114,5 @@ def missing_opencode_message() -> str:
     return (
         "Masterbrain could not find an OpenCode runtime. Packaged desktop builds bundle "
         "OpenCode automatically. For source or development runs, either place `opencode` on "
-        "PATH or vendor it with `python3 scripts/vendor_opencode.py`."
+        "PATH or vendor it with the `apps/api/scripts/vendor_opencode.py` helper."
     )

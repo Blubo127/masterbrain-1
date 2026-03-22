@@ -3,6 +3,7 @@ Configuration file for `masterbrain`.
 """
 
 import os
+from pathlib import Path
 
 # from enum import Enum
 from typing import Callable, Literal, get_args
@@ -10,7 +11,15 @@ from typing import Callable, Literal, get_args
 from dotenv import load_dotenv
 from openai import AsyncOpenAI
 
-load_dotenv(override=True)
+API_ROOT = Path(__file__).resolve().parents[2]
+ENV_FILES = [API_ROOT / ".env"]
+
+if API_ROOT.name == "api" and API_ROOT.parent.name == "apps":
+    ENV_FILES.insert(0, API_ROOT.parents[1] / ".env")
+
+for env_file in ENV_FILES:
+    if env_file.exists():
+        load_dotenv(env_file, override=True)
 
 
 # MARK: OpenAI
