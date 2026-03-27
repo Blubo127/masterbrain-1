@@ -23,11 +23,17 @@ npm install
 npm run build
 ```
 
-再初始化后端并启动一体化本地应用：
+先在 `apps/api/.env` 中配置后端环境变量：
 
 ```shell
-cd ../api
+cd apps/api
 cp .env.example .env
+```
+
+按需填写 `DASHSCOPE_API_KEY`、`OPENAI_API_KEY` 等配置后，再初始化后端并启动一体化本地应用：
+
+```shell
+cd apps/api
 uv sync
 uv run masterbrain-desktop
 ```
@@ -45,8 +51,6 @@ uv run masterbrain-desktop --workspace /path/to/project
 ```shell
 python3 scripts/vendor_opencode.py
 ```
-
-如果你之前已经在仓库根目录维护了旧的 `.env`，后端仍会兼容加载；新的推荐位置是 `apps/api/.env`。
 
 ## 开发模式
 

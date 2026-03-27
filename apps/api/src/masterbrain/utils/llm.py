@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import os
 from collections.abc import AsyncGenerator
 from typing import Literal, get_args
+from urllib.parse import urlsplit, urlunsplit
 
 from fastapi import HTTPException
 from openai import (
@@ -20,10 +22,25 @@ from masterbrain.configs import (
     AvailableOpenAIModel,
     AvailableQwenModel,
     DASHSCOPE_API_KEY,
+    DASHSCOPE_BASE_URL,
     OPENAI_API_KEY,
+    OPENAI_BASE_URL,
 )
 
 ProviderName = Literal["openai", "qwen"]
+
+DEFAULT_PROVIDER_BASE_URL: dict[ProviderName, str] = {
+    "openai": "https://api.openai.com/v1",
+    "qwen": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+}
+PROXY_ENV_NAMES = (
+    "HTTPS_PROXY",
+    "https_proxy",
+    "HTTP_PROXY",
+    "http_proxy",
+    "ALL_PROXY",
+    "all_proxy",
+)
 
 
 def detect_model_provider(model_name: str) -> ProviderName:
@@ -90,6 +107,202 @@ def _extract_provider_error_message(exc: Exception) -> str | None:
     return message or None
 
 
+def _sanitize_url(url: str) -> str:
+    """Drop credentials and query fragments before reflecting URLs back to the user."""
+
+    value = url.strip()
+    if not value:
+        return value
+
+    try:
+        parsed = urlsplit(value)
+    except ValueError:
+        return value
+
+    hostname = parsed.hostname
+    if hostname is None:
+        return value
+
+    netloc = hostname
+    if parsed.port is not None:
+        netloc = f"{netloc}:{parsed.port}"
+
+    return urlunsplit((parsed.scheme, netloc, parsed.path, "", ""))
+
+
+def _looks_like_absolute_url(url: str) -> bool:
+    try:
+        parsed = urlsplit(url)
+    except ValueError:
+        return False
+    return bool(parsed.scheme and parsed.hostname)
+
+
+def _configured_base_url(model_name: str | None) -> str | None:
+    if not model_name:
+        return None
+
+    try:
+        provider = detect_model_provider(model_name)
+    except ValueError:
+        return None
+
+    if provider == "openai":
+        return OPENAI_BASE_URL.strip() or DEFAULT_PROVIDER_BASE_URL["openai"]
+    return DASHSCOPE_BASE_URL.strip() or DEFAULT_PROVIDER_BASE_URL["qwen"]
+
+
+def _extract_request_target(exc: Exception) -> str | None:
+    request = getattr(exc, "request", None)
+    if request is None:
+        return None
+
+    method = getattr(request, "method", None)
+    url = getattr(request, "url", None)
+    if url is None:
+        return method
+
+    target = _sanitize_url(str(url))
+    if method:
+        return f"{method} {target}"
+    return target
+
+
+def _extract_exception_chain_messages(exc: Exception) -> list[str]:
+    messages: list[str] = []
+    seen_messages: set[str] = set()
+    seen_exceptions: set[int] = set()
+    current = getattr(exc, "__cause__", None) or getattr(exc, "__context__", None)
+    top_level_message = str(exc).strip().lower()
+
+    while current is not None and id(current) not in seen_exceptions:
+        seen_exceptions.add(id(current))
+        message = str(current).strip()
+        normalized = message.lower()
+        if message and normalized != top_level_message and normalized not in seen_messages:
+            seen_messages.add(normalized)
+            messages.append(message)
+        current = getattr(current, "__cause__", None) or getattr(current, "__context__", None)
+
+    return messages
+
+
+def _active_proxy_settings() -> list[str]:
+    settings: list[str] = []
+
+    for env_name in PROXY_ENV_NAMES:
+        value = os.environ.get(env_name, "").strip()
+        if not value:
+            continue
+        settings.append(f"{env_name}={_sanitize_url(value)}")
+
+    return settings
+
+
+def _looks_like_local_proxy(proxy_setting: str) -> bool:
+    _, _, proxy_url = proxy_setting.partition("=")
+    try:
+        parsed = urlsplit(proxy_url)
+    except ValueError:
+        return False
+    return parsed.hostname in {"127.0.0.1", "localhost", "::1", "0.0.0.0"}
+
+
+def _build_connection_hint(
+    *,
+    base_url: str | None,
+    proxy_settings: list[str],
+    cause_messages: list[str],
+) -> str | None:
+    if base_url and not _looks_like_absolute_url(base_url):
+        return (
+            f"Configured base URL `{base_url}` is not a valid absolute URL. "
+            "Fix the corresponding `.env` value and restart the backend."
+        )
+
+    if any(_looks_like_local_proxy(setting) for setting in proxy_settings):
+        return (
+            "Detected proxy environment variables pointing to a local proxy. "
+            "If that proxy is not running, start it or unset `http_proxy`, "
+            "`https_proxy`, and `all_proxy`, then restart the backend."
+        )
+
+    cause_blob = " ".join(cause_messages).lower()
+    if any(
+        token in cause_blob
+        for token in (
+            "could not resolve host",
+            "name or service not known",
+            "temporary failure in name resolution",
+            "nodename nor servname provided",
+        )
+    ):
+        return (
+            "DNS resolution failed while reaching the model provider. "
+            "Check your network, DNS, or proxy settings."
+        )
+
+    if any(token in cause_blob for token in ("connection refused", "failed to connect")):
+        return (
+            "The TCP connection was refused. Check whether the configured provider base URL "
+            "or proxy target is reachable from this machine."
+        )
+
+    if any(token in cause_blob for token in ("timed out", "timeout")):
+        return "The network connection timed out before the model provider responded."
+
+    return None
+
+
+def _build_api_connection_detail(
+    exc: APIConnectionError,
+    *,
+    model_name: str | None,
+    provider_message: str | None,
+) -> str:
+    lines: list[str] = []
+
+    if model_name:
+        lines.append(f"Masterbrain could not connect to the model provider for `{model_name}`.")
+        try:
+            provider = detect_model_provider(model_name)
+        except ValueError:
+            provider = None
+        if provider:
+            lines.append(f"Provider: `{provider}`")
+    else:
+        lines.append("Masterbrain could not connect to the model provider.")
+
+    base_url = _configured_base_url(model_name)
+    if base_url:
+        lines.append(f"Base URL: `{_sanitize_url(base_url)}`")
+
+    request_target = _extract_request_target(exc)
+    if request_target:
+        lines.append(f"Request target: `{request_target}`")
+
+    cause_messages = _extract_exception_chain_messages(exc)
+    if cause_messages:
+        lines.append(f"Underlying error: {cause_messages[0]}")
+    elif provider_message and provider_message.lower() != "connection error.":
+        lines.append(f"Provider message: {provider_message}")
+
+    proxy_settings = _active_proxy_settings()
+    if proxy_settings:
+        formatted = ", ".join(f"`{setting}`" for setting in proxy_settings)
+        lines.append(f"Detected proxy env: {formatted}")
+
+    hint = _build_connection_hint(
+        base_url=base_url,
+        proxy_settings=proxy_settings,
+        cause_messages=cause_messages,
+    )
+    if hint:
+        lines.append(f"Hint: {hint}")
+
+    return "\n".join(lines)
+
+
 def llm_http_exception(exc: Exception, model_name: str | None = None) -> HTTPException:
     """Map SDK/provider failures into user-facing HTTP errors."""
 
@@ -128,7 +341,11 @@ def llm_http_exception(exc: Exception, model_name: str | None = None) -> HTTPExc
         return HTTPException(status_code=504, detail=detail)
 
     if isinstance(exc, APIConnectionError):
-        detail = provider_message or "Masterbrain could not connect to the model provider."
+        detail = _build_api_connection_detail(
+            exc,
+            model_name=model_name,
+            provider_message=provider_message,
+        )
         return HTTPException(status_code=502, detail=detail)
 
     if isinstance(exc, BadRequestError):

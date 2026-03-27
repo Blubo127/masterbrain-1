@@ -12,14 +12,10 @@ from dotenv import load_dotenv
 from openai import AsyncOpenAI
 
 API_ROOT = Path(__file__).resolve().parents[2]
-ENV_FILES = [API_ROOT / ".env"]
+ENV_FILE = API_ROOT / ".env"
 
-if API_ROOT.name == "api" and API_ROOT.parent.name == "apps":
-    ENV_FILES.insert(0, API_ROOT.parents[1] / ".env")
-
-for env_file in ENV_FILES:
-    if env_file.exists():
-        load_dotenv(env_file, override=True)
+if ENV_FILE.exists():
+    load_dotenv(ENV_FILE, override=True)
 
 
 # MARK: OpenAI

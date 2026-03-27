@@ -23,11 +23,17 @@ npm install
 npm run build
 ```
 
-Set up the backend and launch the integrated local app:
+First configure backend environment variables in `apps/api/.env`:
 
 ```shell
-cd ../api
+cd apps/api
 cp .env.example .env
+```
+
+After filling in `DASHSCOPE_API_KEY`, `OPENAI_API_KEY`, and any other required values, set up the backend and launch the integrated local app:
+
+```shell
+cd apps/api
 uv sync
 uv run masterbrain-desktop
 ```
@@ -46,7 +52,7 @@ For source checkouts, chat-driven code editing still needs an OpenCode runtime. 
 python3 scripts/vendor_opencode.py
 ```
 
-If you already have a legacy repo-root `.env`, the backend still loads it for compatibility. New setup should place `.env` under `apps/api/`.
+Configure backend environment variables in `apps/api/.env`.
 
 ## Development
 
